@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from utils import rollout_fitness, moving_average, NUM_JOINTS
-from params import GENERATIONS, SEEDS
+from params import GENERATIONS, SEEDS, POP_SIZE
 
 # Derive number of runs directly from SEEDS
 NUM_RUNS = len(SEEDS)
