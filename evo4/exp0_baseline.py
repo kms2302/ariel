@@ -1,6 +1,5 @@
 # =========================
 ## EXPERIMENT 0 (BASELINE)
-# Task: Making the gecko walk as far as possible in the environment BoxyRugged.
 # Fitness = XY displacement of the "core" body after a fixed number of steps.
 # =========================
 
@@ -16,24 +15,33 @@ NUM_RUNS = len(SEEDS)
 def run_one_seed(seed):
     """
     Running the baseline (random search) once with a fixed seed.
-
+    In each generation, POP_SIZE random solutions are generated,
+    and the best one is kept.
     """
     rng = np.random.default_rng(seed)
     best_per_gen = []
     best_overall = -np.inf
 
     for g in range(GENERATIONS):
-        # Generate a random solution (baseline search) 
-        # with param vector size: 2 * NUM_JOINTS + 1
-        x = rng.normal(size=NUM_JOINTS * 2 + 1)
-        f = rollout_fitness(x)
+        # Generate POP_SIZE random solutions per generation
+        fitnesses = []
+        for _ in range(POP_SIZE):
+            x = rng.normal(size=NUM_JOINTS * 2 + 1)
+            f = rollout_fitness(x)
+            fitnesses.append(f)
 
-        # Update bests
-        best_overall = max(best_overall, f)
+        # Best fitness found in this generation
+        best_in_gen = max(fitnesses)
+
+        # Update overall best across generations
+        best_overall = max(best_overall, best_in_gen)
         best_per_gen.append(best_overall)
 
         # Quick progress print
-        print(f"[seed {seed}] gen {g+1:02d}/{GENERATIONS}  best={best_overall:.4f} m")
+        print(
+            f"[seed {seed}] gen {g+1:02d}/{GENERATIONS} "
+            f"best_in_gen={best_in_gen:.4f} m  best_overall={best_overall:.4f} m"
+        )
 
     return np.array(best_per_gen, dtype=float), float(best_overall)
 
@@ -56,7 +64,7 @@ def main():
     std  = curves.std(axis=0)             # Std over seeds, per generation
 
     # Quick report in terminal
-    print(f"\nExperiment run with {NUM_RUNS} seeds")
+    print(f"\nExperiment run with {NUM_RUNS} seeds and POP_SIZE={POP_SIZE}")
     print("Best distances per seed:", [f"{b:.4f}" for b in bests])
     print(f"Final mean (gen {GENERATIONS}) = {mean[-1]:.4f} ± {std[-1]:.4f} m")
 
