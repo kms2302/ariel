@@ -22,7 +22,8 @@ def run_one_seed(seed):
       - Best_fitness_per_generation: list of floats, length = GENERATIONS
       - Best_overall: one float
     """
-    x0 = init_param_vec(seed)
+    rng = np.random.default_rng(seed)
+    x0 = init_param_vec(rng)
 
     # Setting up CMA-ES
     # Note: CMA-ES MINIMIZES by default, so we'll pass negative fitness values

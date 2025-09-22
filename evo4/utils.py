@@ -79,8 +79,10 @@ def unpack_params(theta):
 def controller(theta, t):
     """Computing the control vector (length = number of joints) at time t."""
     A, f, phi = unpack_params(theta)
+
     # Simple sine per joint; shape is (NUM_JOINTS,)
     u = A * np.sin(2.0 * math.pi * f * t + phi)
+
     # Safety: staying within hinge limits
     return np.clip(u, -math.pi/2, math.pi/2)
 
@@ -107,16 +109,45 @@ def rollout_fitness(theta):
     end_xy = core.xpos[:2].copy()
     return float(np.linalg.norm(end_xy - start_xy))
 
-def init_param_vec(seed):
-    rng = np.random.default_rng(seed)
+def init_param_vec(rng):
+    """
+    Initialize parameters for a single individual.
 
-    # Building an initial parameter vector, keeping it simple: 
-    # small amps (near zero before sigmoid), random phases, one freq latent
-    A0   = rng.normal(0.0, 0.2, NUM_JOINTS)
-    phi0 = rng.uniform(0.0, 2.0*math.pi, NUM_JOINTS)
-    f0   = rng.normal(0.0, 0.3)
-    x0   = np.concatenate([A0, phi0, [f0]])
-    return x0
+    Parameters:
+    - rng: Random number generator.
+
+    Returns:
+    - An individual parameter vector. If pop_size is 1, it returns a single
+      parameter vector with shape (2*NUM_JOINTS+1,)
+    """
+    A0 = rng.normal(0.0, 0.2, NUM_JOINTS)
+    phi0 = rng.uniform(0.0, 2.0 * math.pi, NUM_JOINTS)
+    f0 = rng.normal(0.0, 0.3, 1)
+    x0 = np.concatenate([A0, phi0, f0])
+
+    return x0  # Individual: 
+
+def init_pop_vec(rng, pop_size=None):
+    """
+    Initialize parameters for a population.
+
+    Parameters:
+    - rng: Random number generator.
+    - pop_size: The size of the population. Default is None.
+
+    Returns:
+    - A population of parameter vectors. 
+      Population shape: (POP_SIZE, 2*NUM_JOINTS+1).
+    """
+    assert pop_size, "Pass a pop_size value or use init_param_vec for individual"
+
+    # Initialize a population of parameter vectors
+    A0 = rng.normal(0.0, 0.2, (pop_size, NUM_JOINTS))
+    phi0 = rng.uniform(0.0, 2.0 * math.pi, (pop_size, NUM_JOINTS))
+    f0 = rng.normal(0.0, 0.3, (pop_size, 1))
+    x0 = np.concatenate([A0, phi0, f0], axis=1)
+
+    return x0  
 
 def moving_average(x, w=5):
     """Centered moving average with window w."""
