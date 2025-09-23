@@ -24,9 +24,9 @@ cmaes_std = np.load(f"{results_dir}/exp2_cmaes_std.npy")
 generations = np.arange(1, len(baseline_mean) + 1)
 
 # Plot raw baseline
-plt.plot(generations, baseline_mean, label="Baseline", color="gray")
+plt.plot(generations, baseline_mean, label="Baseline", color="black")
 plt.fill_between(generations, baseline_mean - baseline_std, baseline_mean + baseline_std,
-                 color="gray", alpha=0.2)
+                 color="black", alpha=0.2)
 
 # Plot smoothed baseline with its own generations
 smoothed = moving_average(baseline_mean, w=5)
@@ -48,7 +48,9 @@ plt.fill_between(generations, cmaes_mean - cmaes_std, cmaes_mean + cmaes_std,
 plt.title("Comparison of Baseline, GA, and CMA-ES on Gecko (BoxyRugged)")
 plt.xlabel("Generation")
 plt.ylabel("Fitness = XY displacement (m)")
-plt.legend(loc="lower right", bbox_to_anchor=(1.05, 1))
+plt.legend(loc="upper center",          # anchor the top center of the legend
+    bbox_to_anchor=(0.5, -0.1),  # relative to the axes: center (0.5) and below (-0.1)
+    ncol=2)
 plt.grid(True, linestyle="--", alpha=0.6)
 plt.savefig(f"{results_dir}/all_exp_comparison.png", dpi=160)
 plt.tight_layout()
