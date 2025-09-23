@@ -63,6 +63,9 @@ def main():
     mean = curves.mean(axis=0)            # Mean over seeds, per generation
     std  = curves.std(axis=0)             # Std over seeds, per generation
 
+    np.save(f"{results_dir}/exp0_baseline_mean.npy", mean)
+    np.save(f"{results_dir}/exp0_baseline_std.npy", std)
+
     # Quick report in terminal
     print(f"\nExperiment run with {NUM_RUNS} seeds and POP_SIZE={POP_SIZE}")
     print("Best distances per seed:", [f"{b:.4f}" for b in bests])

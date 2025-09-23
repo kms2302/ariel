@@ -77,6 +77,9 @@ def main():
     mean = curves.mean(axis=0)            # Mean over seeds, per generation
     std  = curves.std(axis=0)             # Std over seeds, per generation
 
+    np.save(f"{results_dir}/exp2_cmaes_mean.npy", mean)
+    np.save(f"{results_dir}/exp2_cmaes_std.npy", std)
+
     # Quick report in terminal
     print("\nBest distances per seed:", [f"{b:.4f}" for b in bests])
     print(f"Final mean (gen {GENERATIONS}) = {mean[-1]:.4f} ± {std[-1]:.4f} m")
