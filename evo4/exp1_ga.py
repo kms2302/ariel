@@ -23,20 +23,20 @@ from params import GENERATIONS, POP_SIZE, SEEDS, MUT_RATE, MUT_STDEV
 
 def tournament_selection(pop, fitness, rng, k=3):
     """Pick one parent using k-way tournament."""
-    idxs = rng.integers(0, len(pop), k)
-    best_idx = idxs[np.argmax(fitness[idxs])]
+    idxs = rng.integers(0, len(pop), k)             # Choosing k random indices
+    best_idx = idxs[np.argmax(fitness[idxs])]       # Picking the best candidate among them
     return pop[best_idx]
 
 def crossover(p1, p2, rng):
     """One-point crossover."""
-    point = rng.integers(1, len(p1))
-    c1 = np.concatenate([p1[:point], p2[point:]])
-    c2 = np.concatenate([p2[:point], p1[point:]])
+    point = rng.integers(1, len(p1))                # picking a random point != 0
+    c1 = np.concatenate([p1[:point], p2[point:]])   # child 1
+    c2 = np.concatenate([p2[:point], p1[point:]])   # child 2
     return c1, c2
 
 def mutate(child, rng):
-    mask = rng.random(len(child)) < MUT_RATE
-    child[mask] += rng.normal(0, MUT_STDEV, np.sum(mask))
+    mask = rng.random(len(child)) < MUT_RATE                # Mask marking which genes will be mutated
+    child[mask] += rng.normal(0, MUT_STDEV, np.sum(mask))   # Applying noise where mask=True
     return child
 
 
@@ -54,14 +54,23 @@ def run_one_seed(seed):
     for g in range(GENERATIONS):
         new_pop = []
         while len(new_pop) < POP_SIZE:
+            # Selecting 2 parents
             p1 = tournament_selection(pop, fitness, rng)
             p2 = tournament_selection(pop, fitness, rng)
+
+            # Performing crossover
             c1, c2 = crossover(p1, p2, rng)
+
+            # Applying mutation to children
             c1 = mutate(c1.copy(), rng)
             c2 = mutate(c2.copy(), rng)
             new_pop.extend([c1, c2])
+
+        # Replacing old population
         pop = np.array(new_pop[:POP_SIZE])
         fitness = np.array([rollout_fitness(ind) for ind in pop])
+        
+        # For plotting: keeping the best (i.e., max displacement) this generation
         gen_best = np.max(fitness)
         best_per_gen.append(gen_best)
 
