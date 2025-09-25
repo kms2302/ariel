@@ -5,12 +5,15 @@ from ariel.simulation.environments.boxy_heightmap import BoxyRugged
 from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 
 # Same directory
-from params import AMP_MAX, TIMESTEPS
+from params import TIMESTEPS
 
 # Controller setup: The idea is each joint = A_i * sin(2π f t + φ_i) where
 #   - A_i = amplitude of joint i  (We evolve this)
 #   - φ_i = phase of joint i      (We evolve this)
 #   - f = One shared frequency for all joints (We evolve one value)
+
+# Allowing up to 90 degrees per joint (big enough to push ground)
+AMP_MAX = math.pi / 2
 
 def make_model_and_data():
     """

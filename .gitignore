@@ -1,10 +1,15 @@
 ### PROJECT #####################################################################
 # Videos
 *.mp4
+
 # Dirs
 __data__
 _other_
 .typings
+__results__
+wandb
+wandb_artifacts
+
 # Mujoco
 MUJOCO_LOG.TXT
 # DrawIo

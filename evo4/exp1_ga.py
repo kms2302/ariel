@@ -8,7 +8,9 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 import mujoco
-import os
+import wandb
+from pathlib import Path
+import pandas as pd
 
 # Same directory
 from utils import (
@@ -18,7 +20,16 @@ from utils import (
     init_param_vec,
     init_pop_vec,
 )
-from params import GENERATIONS, POP_SIZE, SEEDS, MUT_RATE, MUT_STDEV
+from params import (
+    GENERATIONS,
+    POP_SIZE,
+    SEEDS,
+    MUT_RATE,
+    MUT_STDEV,
+    ENTITY,
+    PROJECT,
+    CONFIG,
+)
 
 
 def tournament_selection(pop, fitness, rng, k=3):
@@ -40,92 +51,92 @@ def mutate(child, rng):
     return child
 
 
-def run_one_seed(seed):
-    """
-    Running GeneticAlgorithm once (with a fixed random seed) and return:
-      - Best_fitness_per_generation: list of floats, length = GENERATIONS
-      - Best_overall: one float
-    """
-    rng = np.random.default_rng(seed)
-    pop = init_pop_vec(rng, POP_SIZE)
-    fitness = np.array([rollout_fitness(ind) for ind in pop])
-    best_per_gen = []
-
-    for g in range(GENERATIONS):
-        new_pop = []
-        while len(new_pop) < POP_SIZE:
-            # Selecting 2 parents
-            p1 = tournament_selection(pop, fitness, rng)
-            p2 = tournament_selection(pop, fitness, rng)
-
-            # Performing crossover
-            c1, c2 = crossover(p1, p2, rng)
-
-            # Applying mutation to children
-            c1 = mutate(c1.copy(), rng)
-            c2 = mutate(c2.copy(), rng)
-            new_pop.extend([c1, c2])
-
-        # Replacing old population
-        pop = np.array(new_pop[:POP_SIZE])
-        fitness = np.array([rollout_fitness(ind) for ind in pop])
-        
-        # For plotting: keeping the best (i.e., max displacement) this generation
-        gen_best = np.max(fitness)
-        best_per_gen.append(gen_best)
-
-        # Quick progress print
-        print(f"[seed {seed}] gen {g+1:02d}/{GENERATIONS}  best={gen_best:.4f} m")
-
-    best_overall = np.max(fitness)  # global best
-    return np.array(best_per_gen, dtype=float), float(best_overall)
-
-
 def main():
-    """Main: run 3 seeds and plot mean±std"""
-    results_dir = "__results__"
-    os.makedirs(results_dir, exist_ok=True)
-
-    curves = []   # Will become shape (3, generations)
-    bests  = []   # One best number per seed
+    ALGO = "GA"
 
     for seed in SEEDS:
-        curve, best = run_one_seed(seed)
-        curves.append(curve)
-        bests.append(best)
+        run_name = f"{ALGO}-seed{seed}"
+        
+        # Start a new wandb run to track this script.
+        run = wandb.init(
+            entity=ENTITY,
+            project=PROJECT,
+            name=run_name,
+            config=CONFIG,
+        )
+        wandb.config.update({
+            "Experiment": ALGO,
+            "Seed": seed,
+            "Mutation Rate": MUT_RATE,
+            "Mutation SD": MUT_STDEV,
+        })
 
-    curves = np.vstack(curves)            # (n_seeds, generations)
-    mean = curves.mean(axis=0)            # Mean over seeds, per generation
-    std  = curves.std(axis=0)             # Std over seeds, per generation
+        rng = np.random.default_rng(seed)
+        pop = init_pop_vec(rng, POP_SIZE)
+        gen_fitness = np.array([rollout_fitness(ind) for ind in pop])
+        best_per_gen = []
+        best_overall = -np.inf
+        generations = []
 
-    np.save(f"{results_dir}/exp1_ga_mean.npy", mean)
-    np.save(f"{results_dir}/exp1_ga_std.npy", std)
+        for g in range(GENERATIONS):
+            new_pop = []
 
-    # Quick report in terminal
-    print("\nBest distances per seed:", [f"{b:.4f}" for b in bests])
-    print(f"Final mean (gen {GENERATIONS}) = {mean[-1]:.4f} ± {std[-1]:.4f} m")
+            while len(new_pop) < POP_SIZE:
+                # Selecting 2 parents
+                p1 = tournament_selection(pop, gen_fitness, rng)
+                p2 = tournament_selection(pop, gen_fitness, rng)
 
-    # Plotting the figure: mean with a shaded ±1 std band
-    xs = np.arange(1, GENERATIONS + 1)
-    plt.figure(figsize=(9, 5.5))
-    plt.plot(xs, mean, label="GA (mean of 3 runs)")
-    plt.fill_between(xs, mean - std, mean + std, alpha=0.25, label="±1 std")
+                # Performing crossover
+                c1, c2 = crossover(p1, p2, rng)
 
-    smoothed = moving_average(mean, w=5)
-    xs_smooth = np.arange(1, len(smoothed) + 1)
-    
-    plt.plot(xs_smooth, smoothed, linewidth=2,
-        label="GA (mean, moving avg w=5)")
-    plt.xlabel("Generation")
-    plt.ylabel("Fitness = XY displacement (m)")
-    plt.title("Experiment 1 — Genetic Algorithm on Gecko (BoxyRugged)")
-    plt.grid(True)
-    plt.legend(loc="lower right")
-    plt.tight_layout()
-    plt.savefig(f"{results_dir}/exp1_ga_student.png", dpi=160)  # Save one clean figure
-    plt.show()
+                # Applying mutation to children
+                c1 = mutate(c1.copy(), rng)
+                c2 = mutate(c2.copy(), rng)
+                new_pop.extend([c1, c2])
+
+            # Replacing old population
+            pop = np.array(new_pop[:POP_SIZE])
+            gen_fitness = np.array([rollout_fitness(ind) for ind in pop])
+            
+            # For plotting: keeping the best (i.e., max displacement) this generation
+            best_in_gen = np.max(gen_fitness)
+            best_per_gen.append(best_in_gen)
+
+            # Update overall best across generations
+            best_overall = max(best_overall, best_in_gen)
+
+            # Log this gen (i.e., step) to Weights & Biases
+            run.log({
+                "gen": g,
+                "Best fitness in generation (BoxyRugged gecko)": best_in_gen, 
+                "Best fitness across generations (BoxyRugged gecko)": best_overall,
+            }, step=g)
+
+            # Append raw rows for this generation
+            generations.append({
+                "gen": g,
+                "fitness": gen_fitness,
+            })
+
+        # End of run: create a DataFrame and write to Parquet (or CSV)
+        out_dir = Path("wandb_artifacts")
+        out_dir.mkdir(exist_ok=True)
+        file_path = out_dir / f"{run_name}_raw.parquet"
+        df = pd.DataFrame(generations)
+        df.to_parquet(file_path, index=False)
+
+        # Create an artifact, add the file, and log it
+        artifact = wandb.Artifact(
+            name=f"{run_name}-raw-data",
+            type="raw_data",
+            metadata={"generations": 30, "num_rows": len(df)}
+        )
+        artifact.add_file(str(file_path))
+        run.log_artifact(artifact)
+        
+        # Finish the run and upload any remaining data.
+        run.finish()
 
 
 if __name__ == "__main__":
     main()
-
