@@ -9,6 +9,7 @@ _other_
 __results__
 wandb
 wandb_artifacts
+artifacts
 
 # Mujoco
 MUJOCO_LOG.TXT
