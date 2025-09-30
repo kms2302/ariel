@@ -213,7 +213,7 @@ def main() -> None:
         type_p_genes,
         conn_p_genes,
         rot_p_genes,
-    ]
+    ]  # represents a single individual (= input for NDE)
 
     nde = NeuralDevelopmentalEncoding(number_of_modules=num_modules)
     p_matrices = nde.forward(genotype)
