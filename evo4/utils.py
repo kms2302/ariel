@@ -1,6 +1,7 @@
 import mujoco
 import numpy as np
 import math
+from ariel.simulation.controllers.controller import Controller
 from ariel.simulation.environments.boxy_heightmap import BoxyRugged
 from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 
@@ -79,37 +80,49 @@ def unpack_params(theta):
 
     return A, f, phi
 
-def controller(theta, t):
-    """Computing the control vector (length = number of joints) at time t."""
-    A, f, phi = unpack_params(theta)
-
-    # Simple sine per joint; shape is (NUM_JOINTS,)
+def cpg_callback(model, data, *, theta):
+    """
+    ARIEL Controller callback.
+    Computes joint commands for the current MuJoCo time using the evolved CPG.
+    """
+    t = float(data.time)
+    A, f, phi = unpack_params(np.asarray(theta, dtype=np.float64))
     u = A * np.sin(2.0 * math.pi * f * t + phi)
-
-    # Safety: staying within hinge limits
     return np.clip(u, -math.pi/2, math.pi/2)
 
 def rollout_fitness(theta):
     """
-    Fitness: one rollout = one number. Run the simulator once with the given
-    controller parameters. 
-    
-    Return how far the core moved in the XY plane (meters).
+    Run one rollout in MuJoCo with ARIEL's Controller class
+    and return how far the gecko's core moved in the XY plane (meters).
     """
+    # Building a fresh simulation world + robot
     model, data, core = make_model_and_data()
 
-    # Remembering where we started (x,y only)
+    # Recording the starting XY position of the gecko core
     start_xy = core.xpos[:2].copy()
 
-    # Simulating for a fixed number of steps
-    t = 0.0
-    for _ in range(TIMESTEPS):
-        data.ctrl[:] = controller(theta, t)  # Setting actions for this step
-        mujoco.mj_step(model, data)          # Advance physics by 1 step
-        t += model.opt.timestep              # Keeping track of time (seconds)
+    # Hooking ARIEL's Controller into MuJoCo 
+    # Creating a Controller object that will call our custom cpg_callback at each step
+    ctrl = Controller(controller_callback_function=cpg_callback, tracker=None)
 
-    # Distance between end and start in XY
+    # Saving the old control callback (in case something else set it earlier)
+    old_cb = mujoco.get_mjcb_control()
+
+    # Telling MuJoCo to use our controller: every mj_step, call ctrl.set_control()
+    mujoco.set_mjcb_control(lambda m, d: ctrl.set_control(m, d, theta=theta))
+
+    try:
+        # Running the simulation for a fixed number of timesteps
+        for _ in range(TIMESTEPS):
+            mujoco.mj_step(model, data)  # physics advances, controller callback is invoked automatically
+    finally:
+        # Restoring the old control callback after rollout
+        mujoco.set_mjcb_control(old_cb)
+
+    # Recording the final XY position
     end_xy = core.xpos[:2].copy()
+
+    # itness is the euclidean distance traveled in XY plane 
     return float(np.linalg.norm(end_xy - start_xy))
 
 def init_param_vec(rng):
