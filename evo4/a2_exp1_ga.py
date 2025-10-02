@@ -20,7 +20,7 @@ from utils import (
     init_param_vec,
     init_pop_vec,
 )
-from params import (
+from a2_params import (
     GENERATIONS,
     POP_SIZE,
     SEEDS,

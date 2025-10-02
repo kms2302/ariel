@@ -11,7 +11,7 @@ import pandas as pd
 
 # Same directory
 from utils import rollout_fitness, moving_average, NUM_JOINTS
-from params import (
+from a2_params import (
     GENERATIONS,
     SEEDS,
     POP_SIZE,

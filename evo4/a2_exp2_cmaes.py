@@ -15,7 +15,7 @@ import pandas as pd
 
 # Same directory
 from utils import NUM_JOINTS, rollout_fitness, moving_average, init_param_vec
-from params import (
+from a2_params import (
     GENERATIONS,
     POP_SIZE,
     SEEDS,
@@ -27,7 +27,7 @@ from params import (
 
 
 def main():
-    ALGO = "CMA-ES"
+    ALGO = "CMA-ES"  # Weights & Biases configuration
 
     for seed in SEEDS:
         run_name = f"{ALGO}-seed{seed}"

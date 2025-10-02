@@ -5,9 +5,6 @@ from ariel.simulation.controllers.controller import Controller
 from ariel.simulation.environments.boxy_heightmap import BoxyRugged
 from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 
-# Same directory
-from params import TIMESTEPS
-
 # Controller setup: The idea is each joint = A_i * sin(2π f t + φ_i) where
 #   - A_i = amplitude of joint i  (We evolve this)
 #   - φ_i = phase of joint i      (We evolve this)
