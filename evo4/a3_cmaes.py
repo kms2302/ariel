@@ -3,16 +3,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 # Import third-party libraries
-import pandas as pd
+import matplotlib.pyplot as plt
+import mujoco as mj
 import numpy as np
 import numpy.typing as npt
-import mujoco as mj
 from mujoco import viewer
-import cma
 import wandb
+import cma
+import pandas as pd
 
-# Import ARIEL modules
-from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
+# Import local ARIEL modules
+from ariel import console
 from ariel.body_phenotypes.robogen_lite.constructor import (
     construct_mjspec_from_graph,
 )
@@ -20,12 +21,13 @@ from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import (
     HighProbabilityDecoder,
     save_graph_as_json,
 )
+from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
 from ariel.simulation.controllers.controller import Controller
-from ariel.utils.tracker import Tracker
 from ariel.simulation.environments import OlympicArena
-from ariel.utils.video_recorder import VideoRecorder
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
+from ariel.utils.tracker import Tracker
+from ariel.utils.video_recorder import VideoRecorder
 
 # Same directory: local modules
 from a3_params import (
@@ -48,17 +50,17 @@ type ViewerTypes = Literal["launcher", "video", "simple", "no_control", "frame"]
 SEED = 42
 RNG = np.random.default_rng(SEED)
 
-# Global variables
-SPAWN_POS = [-0.8, 0, 0.1]
-NUM_OF_MODULES = 30
-TARGET_POSITION = [5, 0, 0.5]
-GENOTYPE_SIZE = 64  # length of each of the 3 vectors
-
 # Data collection setup for saving robot structure
 SCRIPT_NAME = __file__.split("/")[-1][:-3]
 CWD = Path.cwd()
 DATA = CWD / "__data__" / SCRIPT_NAME
 DATA.mkdir(exist_ok=True)
+
+# Global variables
+SPAWN_POS = [-0.8, 0, 0.1]
+NUM_OF_MODULES = 30
+TARGET_POSITION = [5, 0, 0.5]
+GENOTYPE_SIZE = 64  # length of each of the 3 vectors
 
 
 def gen_rand_robot_body(genotype_size) -> list[np.ndarray]:
