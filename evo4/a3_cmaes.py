@@ -274,8 +274,7 @@ def experiment(
 
 
 def main() -> None:
-    nde = NeuralDevelopmentalEncoding(number_of_modules=NUM_OF_MODULES)
-    hpd = HighProbabilityDecoder(NUM_OF_MODULES)
+    
 
     # Start a new wandb run to track this script.
     run_name = f"CMA-ES-seed{SEED}"
@@ -293,8 +292,11 @@ def main() -> None:
     best_overall = -np.inf
     generations = []
 
-#    for g in range(GENERATIONS):
-    for g in range(1):
+    for g in range(GENERATIONS):
+        # We need a fresh NDE and HPD for each individual
+        nde = NeuralDevelopmentalEncoding(number_of_modules=NUM_OF_MODULES)
+        hpd = HighProbabilityDecoder(NUM_OF_MODULES)
+
         # Create and save an individual robot structure
         genotype = gen_rand_robot_body(GENOTYPE_SIZE)
         p_matrices = nde.forward(genotype)  # (type, connect, rotate)
@@ -340,8 +342,8 @@ def main() -> None:
         # Log this gen (i.e., step) to Weights & Biases
         run.log({
             "gen": g,
-            "Best fitness in generation (BoxyRugged gecko)": best_in_gen, 
-            "Best fitness across generations (BoxyRugged gecko)": best_overall,
+            "Best fitness in generation": best_in_gen, 
+            "Best fitness across generations": best_overall,
         }, step=g)
 
         # Append raw rows for this generation
