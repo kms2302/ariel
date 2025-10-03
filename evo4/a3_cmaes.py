@@ -30,6 +30,10 @@ from ariel.utils.tracker import Tracker
 from ariel.utils.video_recorder import VideoRecorder
 
 # Same directory: local modules
+from utils import (
+    cpg_callback,
+    init_param_vec,
+)
 from a3_params import (
     GENERATIONS,
     POP_SIZE,
@@ -193,6 +197,7 @@ def nn_controller(
     return outputs * np.pi
 
 def experiment(
+    theta,
     robot: Any,
     controller: Controller,
     duration: int = 15,
@@ -200,19 +205,19 @@ def experiment(
 ) -> None:
     """Run the simulation with random movements."""
     # ==================================================================== #
-    # Initialise controller to controller to None, always in the beginning.
-    mj.set_mjcb_control(None)  # DO NOT REMOVE
+    # Clearing any leftover control callback (MuJoCo keeps a global pointer)
+    mj.set_mjcb_control(None)
 
-    # Initialise world
-    # Import environments from ariel.simulation.environments
+    # Initialise world and robot body
     world = OlympicArena()
+    body = robot
 
     # Spawn robot in the world
     # Check docstring for spawn conditions
-    world.spawn(robot.spec, spawn_position=SPAWN_POS)
+    world.spawn(body.spec, spawn_position=SPAWN_POS)
 
-    # Generate the model and data
-    # These are standard parts of the simulation USE THEM AS IS, DO NOT CHANGE
+    # MuJoCo needs a compiled model and a data object that holds the state.
+    # These are standard parts of the simulation.
     model = world.spec.compile()
     data = mj.MjData(model)
 
@@ -223,11 +228,12 @@ def experiment(
     if controller.tracker is not None:
         controller.tracker.setup(world.spec, data)
 
-    # Set the control callback function
-    # This is called every time step to get the next action.
-    args: list[Any] = []  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
-    kwargs: dict[Any, Any] = {}  # IF YOU NEED MORE ARGUMENTS ADD THEM HERE!
+    # Set the arguments for the control callback function
+    args: list[Any] = []
+    kwargs: dict[Any, Any] = {"theta": theta}
 
+    # Telling MuJoCo to use our controller: every mj_step, call ctrl.set_control()
+    # This is called every time step to get the next action.
     mj.set_mjcb_control(
         lambda m, d: controller.set_control(m, d, *args, **kwargs),
     )
@@ -274,8 +280,6 @@ def experiment(
 
 
 def main() -> None:
-    
-
     # Start a new wandb run to track this script.
     run_name = f"CMA-ES-seed{SEED}"
     run = wandb.init(
@@ -288,49 +292,65 @@ def main() -> None:
         "Initial Sigma": SIGMA_INIT,
     })
 
+    # Initialize population of candidate controller solutions
+    x0 = init_param_vec(RNG)
+
+    # Setting up CMA-ES
+    # Note: CMA-ES MINIMIZES by default, so we'll pass negative fitness values
+    es = cma.CMAEvolutionStrategy(
+        x0,
+        SIGMA_INIT,
+        {'popsize': POP_SIZE, 'seed': SEED, 'verbose': -9},  # quiet logs
+    )
+
     best_per_gen = []
     best_overall = -np.inf
     generations = []
 
     for g in range(GENERATIONS):
-        # We need a fresh NDE and HPD for each individual
-        nde = NeuralDevelopmentalEncoding(number_of_modules=NUM_OF_MODULES)
-        hpd = HighProbabilityDecoder(NUM_OF_MODULES)
-
-        # Create and save an individual robot structure
-        genotype = gen_rand_robot_body(GENOTYPE_SIZE)
-        p_matrices = nde.forward(genotype)  # (type, connect, rotate)
-        robot_graph: DiGraph[Any] = hpd.probability_matrices_to_graph(
-            p_matrices[0],
-            p_matrices[1],
-            p_matrices[2],
-        )
-        save_graph_as_json(robot_graph, DATA / "robot_graph.json")
-
-        # Construct Mujoco body specification from graph representation
-        core = construct_mjspec_from_graph(robot_graph)  # robot's core module
-
-        # Track the "core" geom
-        tracker = Tracker(
-            mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM,
-            name_to_bind="core",
-        )
-
-        # Simple NN controller to simulate the robot
-        ctrl = Controller(
-            controller_callback_function=nn_controller,
-            # controller_callback_function=random_move,
-            tracker=tracker,
-        )
-
-        experiment(robot=core, controller=ctrl, mode="simple")
-        f = fitness_function(tracker.history["xpos"][0])
-
-        # We negate because CMA-ES expects a "loss"
+        # ask(): sampling population of candidate controller solutions
+        population = es.ask()
         losses = []
         gen_fitness = []
-        losses.append(-f)  # Negate. Lower is better for CMA
-        gen_fitness.append(f)
+
+        for x in population:
+            # We need a fresh NDE and HPD for each individual robot body
+            nde = NeuralDevelopmentalEncoding(number_of_modules=NUM_OF_MODULES)
+            hpd = HighProbabilityDecoder(NUM_OF_MODULES)
+
+            # Create and save an individual robot structure
+            genotype = gen_rand_robot_body(GENOTYPE_SIZE)
+            p_matrices = nde.forward(genotype)  # (type, connect, rotate)
+            robot_graph: DiGraph[Any] = hpd.probability_matrices_to_graph(
+                p_matrices[0],
+                p_matrices[1],
+                p_matrices[2],
+            )
+            save_graph_as_json(robot_graph, DATA / "robot_graph.json")
+
+            # Construct Mujoco body specification from graph representation
+            core = construct_mjspec_from_graph(robot_graph)  # robot's core module
+
+            # Track the "core" geom
+            tracker = Tracker(
+                mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM,
+                name_to_bind="core",
+            )
+
+            # Simple NN controller to simulate the robot
+            ctrl = Controller(
+                controller_callback_function=cpg_callback,
+                tracker=tracker,
+            )
+
+            # Run an experiment with a single robot
+            theta = np.asarray(x, dtype=np.float64)
+            experiment(theta=theta, robot=core, controller=ctrl, mode="simple")
+
+            # Compute and store the robot's fitness
+            f = fitness_function(tracker.history["xpos"][0])  # Displacement (bigger is better)
+            losses.append(-f)  # Negate. Lower is better for CMA
+            gen_fitness.append(f)
 
         # For plotting: keeping the best (i.e., max displacement) this generation
         best_in_gen = max(gen_fitness)
@@ -363,7 +383,7 @@ def main() -> None:
     artifact = wandb.Artifact(
         name=f"{run_name}-raw-data",
         type="raw_data",
-        metadata={"generations": 30, "num_rows": len(df)}
+        metadata={"generations": GENERATIONS, "num_rows": len(df)}
     )
     artifact.add_file(str(file_path))
     run.log_artifact(artifact)

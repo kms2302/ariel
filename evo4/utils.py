@@ -79,8 +79,10 @@ def unpack_params(theta):
 
 def cpg_callback(model, data, *, theta):
     """
-    ARIEL Controller callback.
+    ARIEL Central Pattern Generator (CPG) Controller callback.
     Computes joint commands for the current MuJoCo time using the evolved CPG.
+
+    Unpacks the CPG parameters (A, f, phi) from the theta vector.
     """
     t = float(data.time)
     A, f, phi = unpack_params(np.asarray(theta, dtype=np.float64))
@@ -119,7 +121,7 @@ def rollout_fitness(theta):
     # Recording the final XY position
     end_xy = core.xpos[:2].copy()
 
-    # itness is the euclidean distance traveled in XY plane 
+    # Fitness is the euclidean distance traveled in XY plane 
     return float(np.linalg.norm(end_xy - start_xy))
 
 def init_param_vec(rng):
@@ -138,7 +140,7 @@ def init_param_vec(rng):
     f0 = rng.normal(0.0, 0.3, 1)
     x0 = np.concatenate([A0, phi0, f0])
 
-    return x0  # Individual: 
+    return x0
 
 def init_pop_vec(rng, pop_size=None):
     """
