@@ -124,6 +124,35 @@ def rollout_fitness(theta):
     # Fitness is the euclidean distance traveled in XY plane 
     return float(np.linalg.norm(end_xy - start_xy))
 
+def get_in_out_sizes(robot_graph):
+    # Resetting MuJoCo control callback (this is important to avoid leftover controllers)
+    mj.set_mjcb_control(None)
+
+    # Creating the environment
+    world = OlympicArena()
+
+    # Turning the body graph into a MuJoCo spec and spawn it into the world
+    core = construct_mjspec_from_graph(robot_graph)
+    world.spawn(core.spec, spawn_position=SPAWN_POS)
+
+    # Compiling the MuJoCo model and data
+    model = world.spec.compile()
+    data = mj.MjData(model)
+
+    # The input size is based on the robot's own state:
+    # - qpos = how many joint angles/positions the robot has
+    # - qvel = how many joint velocities it has
+    # Different robots have different numbers of joints,
+    # so this makes the controller automatically match each new body.
+    input_size = data.qpos.size + data.qvel.size
+
+    # The output size equals the number of actuators (motors) in the robot.
+    # Each robot body can have a different number of joints to control,
+    # so this makes sure the controller always produces the right amount of outputs.
+    output_size = model.nu
+
+    return input_size, output_size
+
 def init_param_vec(rng):
     """
     Initialize parameters for a single individual.
@@ -134,8 +163,7 @@ def init_param_vec(rng):
     Returns:
     - An individual parameter vector. If pop_size is 1, it returns a single
       parameter vector with shape (2*NUM_JOINTS+1,)
-    """
-    A0 = rng.normal(0.0, 0.2, NUM_JOINTS)
+    """A0 = rng.normal(0.0, 0.2, NUM_JOINTS)
     phi0 = rng.uniform(0.0, 2.0 * math.pi, NUM_JOINTS)
     f0 = rng.normal(0.0, 0.3, 1)
     x0 = np.concatenate([A0, phi0, f0])
