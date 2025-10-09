@@ -20,6 +20,7 @@ NUM_OF_MODULES = 30    # maximum number of modules a robot can have
 GENOTYPE_SIZE = 64     # length of each probability vector
 
 # DATA STRUCTURE FOR A GENOTYPE
+@dataclass
 class Genotype:
     """
     A genotype encodes the blueprint of a robot body.

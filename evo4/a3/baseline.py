@@ -20,8 +20,8 @@ from ariel.utils.tracker import Tracker
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 
 # Our own assignment files
-from examples.a3.body_evo import random_genotype, decode_to_graph, Genotype
-from examples.a3.controller_auto import init_controller
+from body_evo import random_genotype, decode_to_graph, Genotype
+from controller_auto import init_controller
 
 # This is only used for type hints (not the runtime)
 if TYPE_CHECKING:
@@ -39,6 +39,7 @@ CULL_THRESHOLD = 0.05
 
 
 # DATA STRUCTURE FOR INDIVIDUALS:
+@dataclass
 class Individual:
     """
     Represents a single robot individual in the baseline population.

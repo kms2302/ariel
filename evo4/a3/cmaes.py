@@ -34,6 +34,8 @@ from utils import (
     cpg_callback,
     init_param_vec,
     get_in_out_sizes,
+    unpack_weights,
+    make_controller,
 )
 from params import (
     GENERATIONS,
@@ -68,6 +70,7 @@ SPAWN_POS = [-0.8, 0, 0.1]
 NUM_OF_MODULES = 30
 TARGET_POSITION = [5, 0, 0.5]
 GENOTYPE_SIZE = 64  # length of each of the 3 vectors
+HIDDEN_SIZE = 8
 
 
 def gen_rand_robot_body(genotype_size) -> list[np.ndarray]:
@@ -172,33 +175,6 @@ def show_xpos_history(history: list[float]) -> None:
     # Show results
     plt.show()
 
-def nn_controller(
-    model: mj.MjModel,
-    data: mj.MjData,
-) -> npt.NDArray[np.float64]:
-    # Simple 3-layer neural network
-    input_size = len(data.qpos)
-    hidden_size = 8
-    output_size = model.nu
-
-    # Initialize the networks weights randomly
-    # Normally, you would use the genes of an individual as the weights,
-    # Here we set them randomly for simplicity.
-    w1 = RNG.normal(loc=0.0138, scale=0.5, size=(input_size, hidden_size))
-    w2 = RNG.normal(loc=0.0138, scale=0.5, size=(hidden_size, hidden_size))
-    w3 = RNG.normal(loc=0.0138, scale=0.5, size=(hidden_size, output_size))
-
-    # Get inputs, in this case the positions of the actuator motors (hinges)
-    inputs = data.qpos
-
-    # Run the inputs through the lays of the network.
-    layer1 = np.tanh(np.dot(inputs, w1))
-    layer2 = np.tanh(np.dot(layer1, w2))
-    outputs = np.tanh(np.dot(layer2, w3))
-
-    # Scale the outputs
-    return outputs * np.pi
-
 def graph_to_json(graph):
     data = json_graph.node_link_data(graph, edges="edges")
     json_string = json.dumps(data, indent=4)
@@ -302,8 +278,9 @@ def main() -> None:
         genotype = random_genotype(rng=RNG, size=GENOTYPE_SIZE)
         robot_graph: DiGraph[Any] = decode_to_graph(genotype)
         input_size, output_size = get_in_out_sizes(robot_graph)
+        hidden = HIDDEN_SIZE
 
-        x0 = init_param_vec(RNG)
+        x0 = init_param_vec(RNG, input_size, hidden, output_size)
 
         # Setting up CMA-ES
         # Note: CMA-ES MINIMIZES by default, so we'll pass negative fitness values
@@ -323,9 +300,13 @@ def main() -> None:
             losses = []
             gen_fitness = []
 
-            for x in population:
-                # Construct Mujoco body specification from graph representation
-                core = construct_mjspec_from_graph(robot_graph)  # robot's core module
+            for theta in population:
+                w1, w2, w3 = unpack_weights(theta, input_size, output_size)
+
+                # sanity check
+                assert w1.shape[0] == input_size
+
+                ctrl_fn = make_controller(w1, w2, w3, input_size)
 
                 # Track the "core" geom
                 tracker = Tracker(
@@ -335,9 +316,11 @@ def main() -> None:
 
                 # Simple NN controller to simulate the robot
                 ctrl = Controller(
-                    controller_callback_function=cpg_callback,
+                    controller_callback_function=ctrl_fn,
                     tracker=tracker,
                 )
+
+                core = construct_mjspec_from_graph(robot_graph)
 
                 # Run an experiment with a single robot
                 experiment(robot=core, controller=ctrl, mode="simple")
