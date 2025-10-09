@@ -68,7 +68,7 @@ def quick_cull_distance(robot_graph: "DiGraph[Any]", rng, seconds=CULL_SECONDS) 
 
     # Turning the body graph into a MuJoCo spec and spawn it into the world
     core = construct_mjspec_from_graph(robot_graph)
-    world.spawn(core.spec, spawn_position=SPAWN_POS)
+    world.spawn(core.spec, position=SPAWN_POS)
 
     # Compiling the MuJoCo model and data
     model = world.spec.compile()

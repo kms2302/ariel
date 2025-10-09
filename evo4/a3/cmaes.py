@@ -197,7 +197,7 @@ def experiment(
 
     # Spawn robot in the world
     # Check docstring for spawn conditions
-    world.spawn(body.spec, spawn_position=SPAWN_POS)
+    world.spawn(body.spec, position=SPAWN_POS)
 
     # MuJoCo needs a compiled model and a data object that holds the state.
     # These are standard parts of the simulation.
