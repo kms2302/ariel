@@ -7,7 +7,7 @@ This way we can quickly verify that our code is working before moving on
 to the more advanced experiments.
 """
 
-from examples.a3.baseline import build_initial_population
+from baseline import build_initial_population
 
 import numpy as np
 
