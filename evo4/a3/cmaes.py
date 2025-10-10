@@ -38,12 +38,14 @@ from utils import (
     make_controller,
 )
 
-# Global constants
-BODY_POP_SIZE = 8
-POP_SIZE = 256
+# Hyperparameters
+BODY_POP_SIZE = 4
+POP_SIZE = 8
 GENERATIONS = 8
 SIGMA_INIT = 0.4
 HIDDEN_SIZE = 8
+
+# Global constants
 SPAWN_POS = [-0.8, 0, 0.1]
 TARGET_POSITION = [5, 0, 0.5]
 
