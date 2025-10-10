@@ -41,6 +41,17 @@ class Genotype:
         """
         return [self.type_vec, self.conn_vec, self.rot_vec]
 
+def flatten_genotype(g: Genotype) -> np.ndarray:
+    """Concatenate the three probability vectors into one 1‑D array."""
+    return np.concatenate([g.type_vec, g.conn_vec, g.rot_vec])
+
+def unflatten_genotype(vec: np.ndarray) -> Genotype:
+    """Recover a Genotype from a flat vector."""
+    sz = GENOTYPE_SIZE
+    type_vec = vec[:sz].astype(np.float32)
+    conn_vec = vec[sz:2*sz].astype(np.float32)
+    rot_vec  = vec[2*sz:3*sz].astype(np.float32)
+    return Genotype(type_vec, conn_vec, rot_vec)
 
 # RANDOM GENOTYPE GENERATOR
 def random_genotype(rng: np.random.Generator, size: int = GENOTYPE_SIZE) -> Genotype:
@@ -54,7 +65,6 @@ def random_genotype(rng: np.random.Generator, size: int = GENOTYPE_SIZE) -> Geno
         conn_vec=rng.random(size).astype(np.float32),   # random connections
         rot_vec=rng.random(size).astype(np.float32),    # random rotations
     )
-
 
 # DECODING GENOTYPE INTO ROBOT BODY
 def decode_to_graph(genotype: Genotype) -> "DiGraph[Any]":
