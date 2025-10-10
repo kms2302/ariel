@@ -1,21 +1,20 @@
+# Import third-party libraries
 import mujoco as mj
 import numpy as np
 import math
+
+# Import local ARIEL modules from CI Group
 from ariel.simulation.controllers.controller import Controller
 from ariel.simulation.environments import OlympicArena
 from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
-
-# Controller setup: The idea is each joint = A_i * sin(2π f t + φ_i) where
-#   - A_i = amplitude of joint i  (We evolve this)
-#   - φ_i = phase of joint i      (We evolve this)
-#   - f = One shared frequency for all joints (We evolve one value)
 
 # Allowing up to 90 degrees per joint (big enough to push ground)
 AMP_MAX = math.pi / 2
 
 # Global variables
 SPAWN_POS = [-0.8, 0, 0.1]
+
 
 def pack_weights(w1, w2, w3):
     """Concatenate all weight matrices into a flat vector."""
