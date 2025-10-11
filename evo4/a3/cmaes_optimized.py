@@ -1,254 +1,259 @@
+# examples/a3/cmaes_optimized.py
 """
 CMA-ES Alternating Body–Controller Optimization
-------------------------------------------------
-Evolves robot bodies and controllers alternately for multiple rounds.
 Each round:
-  1. Evolve controller for current best body
-  2. Evolve body for the latest best controller
+  1) evolve controller for the current best body
+  2) evolve body using the new best controller
 """
-# Import standard and third-party libraries
-from typing import TYPE_CHECKING, Any
+
+from __future__ import annotations
+from typing import TYPE_CHECKING
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import mujoco as mj
 import cma
-import wandb
+
+try:
+    import wandb
+except Exception:
+    wandb = None  # optional; script runs without Weights & Biases
 
 if TYPE_CHECKING:
     from networkx import DiGraph
 
-# ARIEL & local imports
-
-from ariel.simulation.environments import OlympicArena
+# ---------- ARIEL & local imports ----------
 from ariel.utils.runners import simple_runner
 from ariel.utils.tracker import Tracker
-from ariel.simulation.controllers.controller import Controller
-from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import save_graph_as_json
 
-from baseline import build_initial_population, quick_cull_distance, CULL_THRESHOLD, Individual
-from body_evo import random_genotype, decode_to_graph, flatten_genotype, unflatten_genotype, GENOTYPE_SIZE
-from utils import init_param_vec, get_in_out_sizes, unpack_weights
+from examples.a3.body_evo import (
+    random_genotype, decode_to_graph, flatten_genotype, unflatten_genotype,
+)
+from examples.a3.utils import init_param_vec, get_in_out_sizes
 
+from examples.a3.controller_auto import (
+    expected_ctrl_len, unpack_flat_weights, make_mlp_controller_from_weights,
+)
 
-# Hyperparameters
+# (We keep these imports available for the fixed-length genome approach, even if
+# this alternating script doesn’t use them directly right now.)
+from examples.a3.genome_slicing import (
+    slice_body_brain, get_io_sizes_for_graph, pick_brain_slice_for_this_body,
+    HIDDEN_SIZE,
+)
 
-POP_SIZE = 16
-GENERATIONS = 16
-SIGMA_INIT = 0.7
-HIDDEN_SIZE = 8
+# ---------- Hyperparameters ----------
+POP_SIZE     = 16
+GENERATIONS  = 16
+SIGMA_INIT   = 0.7
+SECONDS      = 15.0
+SEED         = 42
+RNG          = np.random.default_rng(SEED)
 
-SPAWN_POS = [-0.8, 0, 0.1]
-TARGET_POSITION = [5, 0, 0.5]
-SECONDS = 15
-
-SEED = 42
-RNG = np.random.default_rng(SEED)
-
-
-#Set up saving data
-
+# ---------- Output folders ----------
 SCRIPT_NAME = __file__.split("/")[-1][:-3]
-CWD = Path.cwd()
-DATA = CWD / "__data__" / SCRIPT_NAME
-DATA.mkdir(exist_ok=True)
+CWD   = Path.cwd()
+DATA  = CWD / "__data__" / SCRIPT_NAME
+WBART = CWD / "wandb_artifacts"
+DATA.mkdir(parents=True, exist_ok=True)
+WBART.mkdir(parents=True, exist_ok=True)
 
-ENTITY = "evo4"
+ENTITY  = "evo4"
 PROJECT = "assignment3"
-CONFIG = {
+CONFIG  = {
     "Generations": GENERATIONS,
     "Population Size": POP_SIZE,
     "Initial Sigma": SIGMA_INIT,
     "Hidden Size": HIDDEN_SIZE,
+    "Seconds": SECONDS,
 }
 
-# Helper utilities
-
-def expected_ctrl_len(in_size: int, hidden: int, out_size: int) -> int:
-    """Total number of weights in 2-hidden-layer MLP."""
-    return in_size * hidden + hidden * hidden + hidden * out_size
-
-def coerce_theta_to_shape(theta: np.ndarray,
-                          in_size: int,
-                          hidden: int,
-                          out_size: int,
-                          rng: np.random.Generator) -> np.ndarray:
+# --- lightweight logging helper: parquet if available, else CSV ---
+def _save_table(df: pd.DataFrame, out_path: Path) -> str:
     """
-    Ensure theta length matches expected MLP shape.
-    Pads with noise or truncates if lengths differ.
+    Try to save as parquet (if pyarrow/fastparquet installed),
+    otherwise fall back to CSV with the same stem.
     """
-    want = expected_ctrl_len(in_size, hidden, out_size)
-    have = len(theta)
-    if have == want:
-        return theta
+    try:
+        df.to_parquet(out_path, index=False)
+        return str(out_path)
+    except Exception:
+        csv_path = out_path.with_suffix(".csv")
+        df.to_csv(csv_path, index=False)
+        return str(csv_path)
 
-    if have > want:
-        print(f"[WARN] Controller vector too long ({have}>{want}); truncating.")
-        return theta[:want]
-    else:
-        print(f"[WARN] Controller vector too short ({have}<{want}); padding.")
-        pad = rng.normal(0, 0.05, size=(want - have,))
-        return np.concatenate([theta, pad])
+# ---------- Fitness ----------
+TARGET_POSITION = np.array([5.0, 0.0, 0.5])
 
 def fitness_function(history: list[tuple[float, float, float]]) -> float:
-    xt, yt, zt = TARGET_POSITION
-    xc, yc, zc = history[-1]
-    return -np.sqrt((xt - xc)**2 + (yt - yc)**2 + (zt - zc)**2)
+    """
+    Fitness = negative distance from final core position to TARGET_POSITION.
+    CMA-ES minimizes, so higher (closer) -> less negative.
+    """
+    p = np.array(history[-1], dtype=float)
+    return -float(np.linalg.norm(TARGET_POSITION - p))
 
 
-# Set up experiment
+# ---------- One rollout ----------
+def experiment(graph, theta: np.ndarray | None, *, hidden: int = HIDDEN_SIZE) -> float:
+    """
+    Build model for 'graph', make controller from 'theta' (flat), run SECONDS, return fitness.
+    If theta is None, use a random controller (baseline).
+    """
+    # Build & compile
+    from ariel.simulation.environments import OlympicArena
+    from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 
-def experiment(graph, theta=None, hidden=HIDDEN_SIZE, random=True):
-    """Run one rollout for a given body graph and controller."""
-    mj.set_mjcb_control(None)
     world = OlympicArena()
-    core = construct_mjspec_from_graph(graph)
-    world.spawn(core.spec, position=SPAWN_POS)
+    core  = construct_mjspec_from_graph(graph)
+    world.spawn(core.spec, position=[-0.8, 0.0, 0.28])
     model = world.spec.compile()
-    data = mj.MjData(model)
+    data  = mj.MjData(model)
     mj.mj_resetData(model, data)
 
+    # tracker for 'core' geom (Controller will call tracker.update(...) every step)
     tracker = Tracker(mujoco_obj_to_find=mj.mjtObj.mjOBJ_GEOM, name_to_bind="core")
     tracker.setup(world.spec, data)
 
-    input_size = data.qpos.size + data.qvel.size
-    output_size = model.nu
+    # sizes for THIS body
+    input_size  = int(data.qpos.size + data.qvel.size)
+    output_size = int(model.nu)
 
-    if random or theta is None:
-        w1 = RNG.normal(0, 0.5, size=(input_size, hidden))
-        w2 = RNG.normal(0, 0.5, size=(hidden, hidden))
-        w3 = RNG.normal(0, 0.5, size=(hidden, output_size))
+    # pick/create weights
+    if theta is None:
+        # baseline: random MLP
+        W1 = RNG.normal(0, 0.5, size=(input_size, hidden))
+        W2 = RNG.normal(0, 0.5, size=(hidden, hidden))
+        W3 = RNG.normal(0, 0.5, size=(hidden, output_size))
     else:
-        theta = coerce_theta_to_shape(theta, input_size, hidden, output_size, RNG)
-        w1, w2, w3 = unpack_weights(theta, input_size, output_size, hidden=hidden)
+        # CMA-ES candidate: flat -> (W1,W2,W3) shaped for THIS body
+        W1, W2, W3 = unpack_flat_weights(theta, input_size, output_size, hidden=hidden)
 
-    def nn_controller(m: mj.MjModel, d: mj.MjData):
-        obs = np.concatenate([d.qpos, d.qvel])
-        h1 = np.tanh(obs @ w1)
-        h2 = np.tanh(h1 @ w2)
-        out = np.tanh(h2 @ w3)
-        return out * (np.pi / 2)
+    # IMPORTANT: pass the tracker into the controller so set_control() can call tracker.update(...)
+    ctrl = make_mlp_controller_from_weights(W1, W2, W3, tracker=tracker)
 
-    ctrl = Controller(controller_callback_function=nn_controller, tracker=tracker)
+    # Install control callback safely, then run
+    old = mj.get_mjcb_control()
     mj.set_mjcb_control(lambda m, d: ctrl.set_control(m, d))
-    simple_runner(model, data, duration=SECONDS)
+    try:
+        simple_runner(model, data, duration=SECONDS)
+    finally:
+        mj.set_mjcb_control(old)
+
     return fitness_function(tracker.history["xpos"][0])
 
 
-# CMA: evolve body
+# ---------- CMA: Evolve body (optionally with a fixed controller) ----------
+def find_best_body(controller_vec: np.ndarray | None, round_idx: int):
+    run = None
+    if wandb:
+        run = wandb.init(entity=ENTITY, project=PROJECT,
+                         name=f"CMA-body-round{round_idx}", config=CONFIG)
 
-def find_best_body(controller_vec=None, round_idx=0):
-    """Evolve the body, optionally with a fixed controller vector."""
-    run_name = f"CMA-ES-seed{SEED}-round{round_idx}-find_best_body"
-    run = wandb.init(entity=ENTITY, project=PROJECT, name=run_name, config=CONFIG)
+    # start from a random genotype vector
+    body_vec0 = flatten_genotype(random_genotype(RNG))
+    es = cma.CMAEvolutionStrategy(body_vec0, SIGMA_INIT,
+                                  {'popsize': POP_SIZE, 'seed': SEED, 'verbose': -9})
 
-    init_body_genotype = random_genotype(RNG)
-    body_vec = flatten_genotype(init_body_genotype)
-    es = cma.CMAEvolutionStrategy(body_vec, SIGMA_INIT, {'popsize': POP_SIZE, 'seed': SEED, 'verbose': -9})
-
-    best_body_graph, best_body_vec = None, None
+    best_graph, best_vec = None, None
     best_f_overall = -np.inf
-    generations = []
+    rows: list[dict] = []
 
     for g in range(GENERATIONS):
-        population = es.ask()
-        losses, gen_fitness = [], []
+        pop = es.ask()
+        losses, gen_f = [], []
 
-        for theta in population:
-            body_genotype = unflatten_genotype(theta)
-            graph = decode_to_graph(body_genotype)
-            f = experiment(graph, theta=controller_vec, random=(controller_vec is None))
+        for v in pop:
+            graph = decode_to_graph(unflatten_genotype(v))
+            f = experiment(graph, theta=controller_vec)
             losses.append(-f)
-            gen_fitness.append(f)
+            gen_f.append(f)
             if f > best_f_overall:
                 best_f_overall = f
-                best_body_vec = theta.copy()
-                best_body_graph = graph
+                best_vec = v.copy()
+                best_graph = graph
 
-        es.tell(population, losses)
-        best_f_in_gen = max(gen_fitness)
-        generations.append({"gen": g, "best_f_in_gen": best_f_in_gen, "best_f_overall": best_f_overall})
-        run.log({
-            "phase": "body", "round": round_idx, "gen": g,
-            "best_f_in_gen": best_f_in_gen, "best_f_overall": best_f_overall,
-        }, step=g)
+        es.tell(pop, losses)
+        row = {"gen": g, "best_f_in_gen": float(np.max(gen_f)), "best_f_overall": float(best_f_overall)}
+        rows.append(row)
+        if run:
+            run.log({"phase": "body", **row}, step=g)
 
-    if best_body_graph is not None:
-        save_graph_as_json(best_body_graph, DATA / f"best_body_round{round_idx}.json")
-        np.save(DATA / f"best_body_vec_round{round_idx}.npy", best_body_vec)
+    if best_graph is not None:
+        save_graph_as_json(best_graph, DATA / f"best_body_round{round_idx}.json")
+        np.save(DATA / f"best_body_vec_round{round_idx}.npy", best_vec)
 
-    Path("wandb_artifacts").mkdir(exist_ok=True)
-    pd.DataFrame(generations).to_parquet(f"wandb_artifacts/{run_name}_raw.parquet", index=False)
-    run.finish()
-    return best_body_graph, best_body_vec, best_f_overall
+    _save_table(pd.DataFrame(rows), WBART / f"body_round{round_idx}.parquet")
+    if run: run.finish()
+    return best_graph, best_vec, best_f_overall
 
 
-# CMA: evolve controller
+# ---------- CMA: Evolve controller for a fixed body ----------
+def find_best_controller(body_graph, round_idx: int):
+    run = None
+    if wandb:
+        run = wandb.init(entity=ENTITY, project=PROJECT,
+                         name=f"CMA-ctrl-round{round_idx}", config=CONFIG)
 
-def find_best_controller(body_graph, round_idx=0):
-    """Evolve the controller for the given body."""
-    run_name = f"CMA-ES-seed{SEED}-round{round_idx}-find_best_ctrl"
-    run = wandb.init(entity=ENTITY, project=PROJECT, name=run_name, config=CONFIG)
-
+    # sizes to seed CMA
     in_size, out_size = get_in_out_sizes(body_graph)
-    ctrl_vec = init_param_vec(RNG, in_size, HIDDEN_SIZE, out_size)
-    es = cma.CMAEvolutionStrategy(ctrl_vec, SIGMA_INIT, {'popsize': POP_SIZE, 'seed': SEED, 'verbose': -9})
+    ctrl0 = init_param_vec(RNG, in_size, HIDDEN_SIZE, out_size)
+    es = cma.CMAEvolutionStrategy(ctrl0, SIGMA_INIT,
+                                  {'popsize': POP_SIZE, 'seed': SEED, 'verbose': -9})
 
-    best_ctrl_vec, best_f_overall = None, -np.inf
-    generations = []
+    best_vec, best_f_overall = None, -np.inf
+    rows: list[dict] = []
 
     for g in range(GENERATIONS):
-        population = es.ask()
-        losses, gen_fitness = [], []
+        pop = es.ask()
+        losses, gen_f = [], []
 
-        for theta in population:
-            f = experiment(body_graph, theta=theta, random=False)
+        for theta in pop:
+            f = experiment(body_graph, theta=theta)
             losses.append(-f)
-            gen_fitness.append(f)
+            gen_f.append(f)
             if f > best_f_overall:
                 best_f_overall = f
-                best_ctrl_vec = theta.copy()
+                best_vec = theta.copy()
 
-        es.tell(population, losses)
-        best_f_in_gen = max(gen_fitness)
-        generations.append({"gen": g, "best_f_in_gen": best_f_in_gen, "best_f_overall": best_f_overall})
-        run.log({
-            "phase": "controller", "round": round_idx, "gen": g,
-            "best_f_in_gen": best_f_in_gen, "best_f_overall": best_f_overall,
-        }, step=g)
+        es.tell(pop, losses)
+        row = {"gen": g, "best_f_in_gen": float(np.max(gen_f)), "best_f_overall": float(best_f_overall)}
+        rows.append(row)
+        if run:
+            run.log({"phase": "controller", **row}, step=g)
 
-    if best_ctrl_vec is not None:
-        np.save(DATA / f"best_ctrl_vec_round{round_idx}.npy", best_ctrl_vec)
+    if best_vec is not None:
+        np.save(DATA / f"best_ctrl_vec_round{round_idx}.npy", best_vec)
 
-    Path("wandb_artifacts").mkdir(exist_ok=True)
-    pd.DataFrame(generations).to_parquet(f"wandb_artifacts/{run_name}_raw.parquet", index=False)
-    run.finish()
-    return best_ctrl_vec, best_f_overall
+    _save_table(pd.DataFrame(rows), WBART / f"ctrl_round{round_idx}.parquet")
+    if run: run.finish()
+    return best_vec, best_f_overall
 
 
-# Alternating main loop
+# ---------- Alternating loop ----------
+def alternating_main(rounds: int = 3):
+    print(f"Alternating optimization for {rounds} rounds")
 
-def alternating_main(rounds=3):
-    """Iteratively alternate between body and controller evolution."""
-    print(f"Starting alternating optimization for {rounds} rounds.")
-    best_body_graph, best_body_vec, f_body = find_best_body(None, round_idx=0)
+    # Round 0: pick a body using random controllers
+    best_body_graph, best_body_vec, f_body = find_best_body(controller_vec=None, round_idx=0)
     best_ctrl_vec, f_ctrl = None, -np.inf
 
     for r in range(1, rounds + 1):
         print(f"\n=== Round {r} ===")
         best_ctrl_vec, f_ctrl = find_best_controller(best_body_graph, round_idx=r)
-        print(f"[Round {r}] Controller evolved (fitness: {f_ctrl:.3f})")
-        best_body_graph, best_body_vec, f_body = find_best_body(controller_vec=best_ctrl_vec, round_idx=r)
-        print(f"[Round {r}] Body evolved (fitness: {f_body:.3f})")
+        print(f"[Round {r}] controller best f = {f_ctrl:.3f}")
 
-    print("\nOptimization complete")
-    print(f"Final body fitness: {f_body:.3f}")
-    print(f"Final controller fitness: {f_ctrl:.3f}")
+        best_body_graph, best_body_vec, f_body = find_best_body(controller_vec=best_ctrl_vec, round_idx=r)
+        print(f"[Round {r}] body best f = {f_body:.3f}")
+
+    print("\nDONE.")
+    print(f"Final body f = {f_body:.3f} | Final ctrl f = {f_ctrl:.3f}")
     save_graph_as_json(best_body_graph, DATA / "final_best_body.json")
-    np.save(DATA / "final_best_ctrl.npy", best_ctrl_vec)
+    if best_ctrl_vec is not None:
+        np.save(DATA / "final_best_ctrl.npy", best_ctrl_vec)
 
 
 if __name__ == "__main__":
     alternating_main(rounds=4)
-
