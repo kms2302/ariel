@@ -18,7 +18,7 @@ import cma
 try:
     import wandb
 except Exception:
-    wandb = None  # optional; script runs without Weights & Biases
+    wandb = None  # script runs without Weights & Biases
 
 if TYPE_CHECKING:
     from networkx import DiGraph
