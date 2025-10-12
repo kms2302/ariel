@@ -83,8 +83,8 @@ def make_mlp_controller_from_weights(W1: np.ndarray,
                                      tracker=None) -> Controller:
     """
     Wrap fixed MLP weights into an ARIEL Controller (deterministic).
-    ARIEL's Controller calls tracker.update(...) internally.
-    Passing the Tracker you created for this rollout via `tracker=...`.
+    IMPORTANT: ARIEL's Controller calls tracker.update(...) internally.
+               Pass the Tracker you created for this rollout via `tracker=...`.
     """
     in_dim, h = W1.shape
     assert W2.shape == (h, h)
