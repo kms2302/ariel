@@ -18,7 +18,7 @@ import cma
 try:
     import wandb
 except Exception:
-    wandb = None  # script runs without Weights & Biases
+    wandb = None  # optional; script runs without Weights & Biases
 
 if TYPE_CHECKING:
     from networkx import DiGraph
@@ -27,11 +27,12 @@ if TYPE_CHECKING:
 from ariel.utils.runners import simple_runner
 from ariel.utils.tracker import Tracker
 from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import save_graph_as_json
+from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
+from ariel.simulation.environments import OlympicArena
 
 from examples.a3.body_evo import (
     random_genotype, decode_to_graph, flatten_genotype, unflatten_genotype,
 )
-from examples.a3.utils import init_param_vec, get_in_out_sizes
 
 from examples.a3.controller_auto import (
     expected_ctrl_len, unpack_flat_weights, make_mlp_controller_from_weights,
@@ -40,8 +41,8 @@ from examples.a3.controller_auto import (
 # (We keep these imports available for the fixed-length genome approach, even if
 # this alternating script doesn’t use them directly right now.)
 from examples.a3.genome_slicing import (
-    slice_body_brain, get_io_sizes_for_graph, pick_brain_slice_for_this_body,
-    HIDDEN_SIZE,
+    slice_body_brain, get_io_sizes_for_graph as _unused_get_io_sizes_for_graph,
+    pick_brain_slice_for_this_body, HIDDEN_SIZE,
 )
 
 # ---------- Hyperparameters ----------
@@ -72,10 +73,6 @@ CONFIG  = {
 
 # --- lightweight logging helper: parquet if available, else CSV ---
 def _save_table(df: pd.DataFrame, out_path: Path) -> str:
-    """
-    Try to save as parquet (if pyarrow/fastparquet installed),
-    otherwise fall back to CSV with the same stem.
-    """
     try:
         df.to_parquet(out_path, index=False)
         return str(out_path)
@@ -88,13 +85,26 @@ def _save_table(df: pd.DataFrame, out_path: Path) -> str:
 TARGET_POSITION = np.array([5.0, 0.0, 0.5])
 
 def fitness_function(history: list[tuple[float, float, float]]) -> float:
-    """
-    Fitness = negative distance from final core position to TARGET_POSITION.
-    CMA-ES minimizes, so higher (closer) -> less negative.
-    """
     p = np.array(history[-1], dtype=float)
     return -float(np.linalg.norm(TARGET_POSITION - p))
 
+# ---------- LOCAL HELPERS (avoid importing from utils to prevent circulars) ----------
+def _get_in_out_sizes(body_graph) -> tuple[int, int]:
+    """Compile this body and return (input_size, output_size)."""
+    world = OlympicArena()
+    core  = construct_mjspec_from_graph(body_graph)
+    world.spawn(core.spec, position=[-0.8, 0.0, 0.28])
+    model = world.spec.compile()
+    data  = mj.MjData(model)
+    mj.mj_resetData(model, data)
+    input_size  = int(data.qpos.size + data.qvel.size)
+    output_size = int(model.nu)
+    return input_size, output_size
+
+def _init_param_vec(rng: np.random.Generator, input_size: int, hidden: int, output_size: int) -> np.ndarray:
+    """Flat vector of random MLP weights of the right length."""
+    L = expected_ctrl_len(input_size, hidden, output_size)
+    return rng.normal(0.0, 0.5, size=L)
 
 # ---------- One rollout ----------
 def experiment(graph, theta: np.ndarray | None, *, hidden: int = HIDDEN_SIZE) -> float:
@@ -102,10 +112,6 @@ def experiment(graph, theta: np.ndarray | None, *, hidden: int = HIDDEN_SIZE) ->
     Build model for 'graph', make controller from 'theta' (flat), run SECONDS, return fitness.
     If theta is None, use a random controller (baseline).
     """
-    # Build & compile
-    from ariel.simulation.environments import OlympicArena
-    from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
-
     world = OlympicArena()
     core  = construct_mjspec_from_graph(graph)
     world.spawn(core.spec, position=[-0.8, 0.0, 0.28])
@@ -143,7 +149,6 @@ def experiment(graph, theta: np.ndarray | None, *, hidden: int = HIDDEN_SIZE) ->
         mj.set_mjcb_control(old)
 
     return fitness_function(tracker.history["xpos"][0])
-
 
 # ---------- CMA: Evolve body (optionally with a fixed controller) ----------
 def find_best_body(controller_vec: np.ndarray | None, round_idx: int):
@@ -189,7 +194,6 @@ def find_best_body(controller_vec: np.ndarray | None, round_idx: int):
     if run: run.finish()
     return best_graph, best_vec, best_f_overall
 
-
 # ---------- CMA: Evolve controller for a fixed body ----------
 def find_best_controller(body_graph, round_idx: int):
     run = None
@@ -198,8 +202,8 @@ def find_best_controller(body_graph, round_idx: int):
                          name=f"CMA-ctrl-round{round_idx}", config=CONFIG)
 
     # sizes to seed CMA
-    in_size, out_size = get_in_out_sizes(body_graph)
-    ctrl0 = init_param_vec(RNG, in_size, HIDDEN_SIZE, out_size)
+    in_size, out_size = _get_in_out_sizes(body_graph)
+    ctrl0 = _init_param_vec(RNG, in_size, HIDDEN_SIZE, out_size)
     es = cma.CMAEvolutionStrategy(ctrl0, SIGMA_INIT,
                                   {'popsize': POP_SIZE, 'seed': SEED, 'verbose': -9})
 
@@ -231,7 +235,6 @@ def find_best_controller(body_graph, round_idx: int):
     if run: run.finish()
     return best_vec, best_f_overall
 
-
 # ---------- Alternating loop ----------
 def alternating_main(rounds: int = 3):
     print(f"Alternating optimization for {rounds} rounds")
@@ -253,7 +256,6 @@ def alternating_main(rounds: int = 3):
     save_graph_as_json(best_body_graph, DATA / "final_best_body.json")
     if best_ctrl_vec is not None:
         np.save(DATA / "final_best_ctrl.npy", best_ctrl_vec)
-
 
 if __name__ == "__main__":
     alternating_main(rounds=4)
