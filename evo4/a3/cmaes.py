@@ -17,6 +17,7 @@ from ariel.simulation.controllers.controller import Controller
 from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
 from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import (
     HighProbabilityDecoder,
+    save_graph_as_json,
 )
 from ariel.body_phenotypes.robogen_lite.constructor import (
     construct_mjspec_from_graph,
@@ -63,10 +64,13 @@ LEN_TOTAL_GENOME = LEN_BODY_GENOME + LEN_BRAIN_GENOME  # 776
 # -----------------------------------------
 
 # Hyperparameters
-POP_SIZE = 32
-GENERATIONS = 32
+POP_SIZE = 16
+GENERATIONS = 1024
 SIGMA_INIT = 0.7
 SECONDS = 15
+FIRST_FITNESS_THRESHOLD = -4.8
+SECOND_FITNESS_THRESHOLD = -4.3
+SPAWN_POS = [-0.8, 0, 0.1]
 
 # The Weights & Biases parameters
 ENTITY = "evo4"
@@ -82,7 +86,6 @@ SEED = 42
 RNG = np.random.default_rng(SEED)
 
 # Global variables
-SPAWN_POS = [-0.8, 0, 0.1]
 NUM_OF_MODULES = 30
 TARGET_POSITION = [5, 0, 0.5]
 
@@ -269,6 +272,7 @@ def main() -> None:
     generations = []
     best_per_gen = []
     best_f_overall = -np.inf  # best fitness seen overall
+    seconds = SECONDS
 
     for g in range(GENERATIONS):
         population = es.ask()
@@ -281,8 +285,14 @@ def main() -> None:
             # Telling MuJoCo to call our controller every timestep
             mj.set_mjcb_control(lambda m, d: ctrl.set_control(m, d))
 
+            # Dynamic simulation duration
+            if best_f_overall > SECOND_FITNESS_THRESHOLD and seconds == 60:
+                seconds = 160
+            elif best_f_overall > FIRST_FITNESS_THRESHOLD and seconds == 15:
+                seconds = 60
+
             # Running the simulation for a short amount of time (fast test, no visualization)
-            simple_runner(model, data, duration=SECONDS)
+            simple_runner(model, data, duration=seconds)
             f = fitness_function(tracker.history["xpos"][0])  # Displacement (bigger is better)
             losses.append(-f)  # Negate. Lower is better for CMA
             gen_fitness.append(f)
@@ -300,6 +310,7 @@ def main() -> None:
         # Log this gen (i.e., step) to Weights & Biases
         run.log({
             "gen": g,
+            "seconds": seconds,
             "best_f_in_gen": best_f_in_gen, 
             "best_f_overall": best_f_overall,
         }, step=g)
@@ -307,6 +318,7 @@ def main() -> None:
         # Append raw rows for this generation
         generations.append({
             "gen": g,
+            "seconds": seconds,
             "gen_fitness": gen_fitness,
             "best_f_in_gen": best_f_in_gen, 
             "best_f_overall": best_f_overall,
