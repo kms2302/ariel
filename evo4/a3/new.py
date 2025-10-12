@@ -77,7 +77,7 @@ CO-EVOLUTION of a robot's body and its brain
 """
 new.py  —  Co-evolution representation (GENOME) + DECODING
 
-What this file does:
+What this file does (plain English):
 - We define ONE flat genome vector that CMA-ES can optimize. It has two parts:
     [ BODY_GENOME | BRAIN_GENOME ]
 - BODY_GENOME (first 3*GENOTYPE_SIZE numbers) are probabilities that get decoded
@@ -87,6 +87,8 @@ What this file does:
   weights as we need for the current body, and ignore the rest.
 - The point is: CMA-ES wants a fixed dimension; we give it that, but only use the
   piece that fits the current body. Unused brain genes are simply ignored.
+
+This matches Kevyn's plan (steps 5–9).
 """
 
 from __future__ import annotations
@@ -232,7 +234,7 @@ def build_model_from_graph(graph: Any, spawn_z: float = 0.30) -> Tuple[mj.MjMode
     """
     world = OlympicArena()
     core  = construct_mjspec_from_graph(graph)
-    world.spawn(core.spec, spawn_position=[-0.8, 0.0, float(spawn_z)])
+    world.spawn(core.spec, position=[-0.8, 0.0, float(spawn_z)])
     model = world.spec.compile()
     data  = mj.MjData(model)
     return model, data
