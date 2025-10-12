@@ -1,16 +1,16 @@
-# The basic hyperparameters
-GENERATIONS = 4        # This is how many generations for the EA
-POP_SIZE    = 256        # These are the candidates per generation
-ALGOS       = ["CMA-ES"]
-SEEDS       = [42, 1337, 2025]  # We run each whole experiment 3 times (for mean±std)
+# --- Core EA hyperparameters (longer & stronger run) ---
+GENERATIONS = 60          # enough for convergence (≥ 50 recommended in feedback)
+POP_SIZE    = 64          # larger search space, slower but better
+SEEDS       = [42]        # fixed for reproducibility
 
-# The Weights & Biases parameters
+# --- CMA-ES hyperparameters ---
+SIGMA_INIT  = 0.5         # not too wild, not too small
+
+# --- Tracking (W&B) ---
 ENTITY = "evo4"
 PROJECT = "assignment3"
 CONFIG = {
     "Generations": GENERATIONS,
     "Population Size": POP_SIZE,
+    "Initial Sigma": SIGMA_INIT,
 }
-
-# The CMA-ES hyperparameters
-SIGMA_INIT  = 0.7       # The initial CMA-ES step size (how "wide" the search starts)
