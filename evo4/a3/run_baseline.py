@@ -7,10 +7,9 @@ This way we can quickly verify that our code is working before moving on
 to the more advanced experiments.
 """
 
-from baseline import build_initial_population
-
+from __future__ import annotations
 import numpy as np
-
+from .baseline import build_initial_population
 
 def main():
     """
