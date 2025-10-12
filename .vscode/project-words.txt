@@ -191,6 +191,7 @@ deepcopy
 defenses
 deflist
 defusedxml
+delaxes
 Deniz
 devcontainers
 dfden
@@ -369,6 +370,7 @@ iniconfig
 INP
 inproceedings
 Ioannis
+ipykernel
 ipynb
 ipython
 isdigit
@@ -480,6 +482,7 @@ logfilewarninglist
 lognormal
 logscale
 logseries
+logspace
 longtable
 longtblr
 lookat
@@ -534,6 +537,7 @@ modificationdate
 modname
 moredelim
 morekeywords
+mpatches
 mpimg
 MRO
 msg
@@ -622,6 +626,7 @@ orjson
 osmesa
 outdir
 pandoc
+parentid
 pathlib
 pathspec
 pawlik
@@ -772,6 +777,7 @@ seanwu
 SEL
 selectattr
 selectby
+sensorsize
 sessionmaker
 setattr
 setuptools
@@ -910,6 +916,7 @@ Weissl
 worldbody
 WSL
 wxyz
+xaxis
 xbm
 xcb
 xcolor
@@ -928,6 +935,7 @@ xyaxes
 xyflow
 xyzw
 yarl
+yaxis
 Yinyang
 ylabel
 ylim
