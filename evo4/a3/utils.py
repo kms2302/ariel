@@ -79,7 +79,7 @@ def get_in_out_sizes(robot_graph):
     # so this makes sure the controller always produces the right amount of outputs.
     init_output_size = model.nu
 
-    return init_input_size, init_input_size
+    return init_input_size, init_output_size
 
 def init_param_vec(rng, input_size, hidden, output_size):
     """
