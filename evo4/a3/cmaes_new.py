@@ -43,7 +43,7 @@ NUM_OF_MODULES = 30
 
 # Hyperparameters
 POP_SIZE = 32
-GENERATIONS = 26000
+GENERATIONS = 850
 SIGMA_INIT = 0.7
 SECONDS_1 = 1
 SECONDS_2 = 15
@@ -91,7 +91,7 @@ CONFIG = {
 }
 
 # Random generator setup
-SEED = 42
+SEED = 395
 RNG = np.random.default_rng(SEED)
 
 # Data setup
