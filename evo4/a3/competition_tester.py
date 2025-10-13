@@ -113,7 +113,7 @@ def experiment(
 def main() -> None:
     """Entry point."""
     # Load your robot graph here
-    run = "20251013T034145"
+    run = "20251013T105557"
     path_to_graph = CWD / f"best_body_robot_graph_{run}.json"
     robot_graph = load_graph_from_json(path_to_graph)
 
