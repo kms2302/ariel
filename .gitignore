@@ -21,7 +21,7 @@ docs/apidocs/
 docs/autoapi
 ### PYTHON ######################################################################
 # Byte-compiled / optimized / DLL files
-__pycache__/
+__pycache__
 *.py[cod]
 *py.class
 *.pyc
@@ -272,3 +272,4 @@ RECYCLE.BIN/
 *.msp
 # Windows shortcuts
 *.lnk
+

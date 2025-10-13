@@ -9,7 +9,7 @@ from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from
 from ariel.utils.tracker import Tracker
 from ariel.utils.runners import simple_runner
 
-from examples.a3.controller_auto import init_controller
+from controller_auto import init_controller
 
 # Default spawn used if none is provided
 DEFAULT_SPAWN = (-0.8, 0.0, 0.28)

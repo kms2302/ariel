@@ -40,17 +40,17 @@ from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import save_gr
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 from ariel.simulation.environments import OlympicArena
 
-from examples.a3.params import POP_SIZE, GENERATIONS, SIGMA_INIT, ENTITY, PROJECT, CONFIG as BASE_CONFIG
-from examples.a3.body_evo import (
+from params import POP_SIZE, GENERATIONS, SIGMA_INIT, ENTITY, PROJECT, CONFIG as BASE_CONFIG
+from body_evo import (
     random_genotype, decode_to_graph, flatten_genotype, unflatten_genotype,
 )
-from examples.a3.spawns import cycle_spawns
-from examples.a3.culling import cull_one
+from spawns import cycle_spawns
+from culling import cull_one
 
-from examples.a3.controller_auto import (
+from controller_auto import (
     unpack_flat_weights, make_mlp_controller_from_weights,
 )
-from examples.a3.cpg_controller import (
+from cpg_controller import (
     make_cpg_controller_from_theta, cpg_param_len,
 )
 

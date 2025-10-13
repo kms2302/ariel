@@ -10,7 +10,7 @@ import numpy as np
 from ariel.simulation.environments import OlympicArena
 from ariel.body_phenotypes.robogen_lite.constructor import construct_mjspec_from_graph
 
-from examples.a3.controller_auto import (
+from controller_auto import (
     unpack_flat_weights,
     make_mlp_controller_from_weights,
 )
