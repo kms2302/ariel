@@ -36,7 +36,7 @@ TARGET_POSITION = [5, 0, 0.5]
 TIME_OUT = 500
 
 # Local scripts
-from A3_plot_function import show_xpos_history
+from plot_function import show_xpos_history
 
 
 def fitness_function(history: list[tuple[float, float, float]]) -> float:
@@ -113,7 +113,7 @@ def experiment(
 def main() -> None:
     """Entry point."""
     # Load your robot graph here
-    run = "20251013T030714"
+    run = "20251013T034145"
     path_to_graph = CWD / f"best_body_robot_graph_{run}.json"
     robot_graph = load_graph_from_json(path_to_graph)
 
