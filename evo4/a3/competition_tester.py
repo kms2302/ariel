@@ -159,8 +159,14 @@ def main() -> None:
 
     experiment(robot=core, controller=ctrl)
 
-    show_xpos_history(tracker.history["xpos"][0])
+    # Plot the x-position history
+    show_xpos_history(
+        tracker.history["xpos"][0],
+        spawn_position=SPAWN_POS,
+        target_position=TARGET_POSITION,
+    )
 
+    # Calculate and print the fitness of your robot
     fitness = fitness_function(tracker.history["xpos"][0])
     msg = f"Fitness of generated robot: {fitness}"
     console.log(msg)
