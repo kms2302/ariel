@@ -29,9 +29,9 @@ from ariel.body_phenotypes.robogen_lite.constructor import (
 # --- CONFIGURATION CONSTANTS ---
 # Body genome constants (3 probability vectors, size=64 each)
 GENOTYPE_SIZE = 64
-LEN_BODY_GENOME = 3 * GENOTYPE_SIZE  # 192
+LEN_BODY_GENOME = 3 * GENOTYPE_SIZE  # Which is 192
 
-# Brain sizing policy for a fixed-length CMA-ES genome
+# Controller (brain) pool dimensions (we slice to actual I/O sizes per body)
 I_MAX = 35  # maximum input_size
 O_MAX = 30  # maximum output_size
 HIDDEN_SIZE = 8
@@ -57,13 +57,14 @@ THRESHOLD_4 = -3.45  # -3.4: it arrived at inclined!
 
 # Positions
 TARGET_POSITION = [5, 0, 0.5]
-SPAWN_POS = np.array([-0.8, 0, 0.1]) # Use numpy array for easy addition
+SPAWN_POS = np.array([-0.8, 0, 0.1])
 RUGGED_PENALTY = 0.3
 INCLINED_PENALTY = 1.3
 RUGGED_POS = SPAWN_POS + np.array([RUGGED_PENALTY, 0, 0])
 INCLINED_POS = SPAWN_POS + np.array([INCLINED_PENALTY, 0, 0])
 
-# Map positions to penalties (for use in selection)
+# We randomly pick one of these for each individual
+# The penalty only applies if we didn’t exactly reach the target
 SPAWN_DATA = {
 	"pos": SPAWN_POS,
 	"penalty": 0.0,
@@ -76,10 +77,10 @@ INCLINED_DATA = {
 	"pos": INCLINED_POS,
 	"penalty": INCLINED_PENALTY,
 }
-SPAWN_OPTIONS = [SPAWN_DATA, RUGGED_DATA, INCLINED_DATA] # List of dictionaries
+SPAWN_OPTIONS = [SPAWN_DATA, RUGGED_DATA, INCLINED_DATA]
 
 # The list of spawn positions for the environment setup (as lists/arrays)
-SPAWN_POSITIONS = [data["pos"].tolist() for data in SPAWN_OPTIONS] # Still needed for OlympicArena.spawn
+SPAWN_POSITIONS = [data["pos"].tolist() for data in SPAWN_OPTIONS] # needed for OlympicArena.spawn
 
 # The Weights & Biases parameters
 ENTITY = "evo4"
@@ -91,7 +92,7 @@ CONFIG = {
 }
 
 # Random generator setup
-SEED = 395
+SEED = 42
 RNG = np.random.default_rng(SEED)
 
 # Data setup
@@ -145,7 +146,12 @@ class EvolutionarySystem:
 			self.seconds = SECONDS_2
 
 	def _fitness_function(self, history: list[tuple[float, float, float]], penalty: float) -> float:
-		"""Calculates fitness (negative Cartesian distance to target) and applies penalty."""
+		"""
+		Calculates fitness (negative Cartesian distance to target).
+		
+		If the target is not exactly reached, 
+		we apply a small penalty depending on the spawn section.
+		"""
 		xt, yt, zt = TARGET_POSITION
 		xc, yc, zc = history[-1]
 
@@ -251,32 +257,50 @@ class Individual:
 	"""
 	Represents a single individual in the population with its full genome,
 	decoded body (robot_graph, model, data, tracker), and decoded brain (controller).
+
+	A single robot:
+	- holds the genome vector
+	- decodes body -> builds a MuJoCo model
+	- decodes brain -> builds a simple tanh MLP controller
 	"""
 
 	def __init__(self, genome: npt.NDArray[np.float64]):
 		self.genome = genome
-		# Decoded components (initialized to None)
+
+		# Decoded components; will be set later when we decode the genome
 		self.robot_graph = None
 		self.model = None
 		self.data = None
 		self.tracker = None
 		self.controller = None
+
+		# MLP weights
 		self.w1: Optional[npt.NDArray] = None
 		self.w2: Optional[npt.NDArray] = None
 		self.w3: Optional[npt.NDArray] = None
+
+		# Info about where this robot starts (spawn position + penalty)
 		self.spawn_data: dict = random.choice(SPAWN_OPTIONS) 
 		self.spawn_position: list[float] = self.spawn_data["pos"].tolist()
 		self.spawn_penalty: float = self.spawn_data["penalty"]
 
 	def decode(self):
-		"""Performs the 2-stage decoding of the full genome (body then brain)."""
+		"""
+		Performs the 2-stage decoding of the full genome (body then brain).
+
+		Full decode pipeline: body -> env -> brain -> controller.
+		"""
 		self._decode_body_genome()
 		self._setup_simulation_env()
 		self._decode_brain_genome()
 		self._construct_controller()
 
 	def _decode_body_genome(self):
-		"""Decodes the body genome into a robot graph."""
+		"""
+		Decodes the body genome into a robot graph.
+		
+		Turns the first 192 genes into probability matrices -> body graph.
+		"""
 		body_genome = self.genome[:LEN_BODY_GENOME]
 		type_p_genes = body_genome[0:GENOTYPE_SIZE]
 		conn_p_genes = body_genome[GENOTYPE_SIZE:2 * GENOTYPE_SIZE]
@@ -293,7 +317,11 @@ class Individual:
 		)
 
 	def _setup_simulation_env(self):
-		"""Sets up the MuJoCo model, data, and tracker based on the robot graph."""
+		"""
+		Builds the MuJoCo model and data for this body based on the robot graph. 
+		After that it spawns it in the chosen spot
+        and attach a tracker that records (x, y, t) during the rollout.
+		"""
 		mj.set_mjcb_control(None)  # Important to avoid leftover controllers
 
 		world = OlympicArena()
@@ -310,7 +338,14 @@ class Individual:
 		self.tracker.setup(world.spec, self.data)
 
 	def _decode_brain_genome(self):
-		"""Decodes the brain genome using direct slice mapping."""
+		"""
+		Decodes the brain genome using direct slice mapping.
+
+		Slices the brain pool to the sizes needed by this body, 
+		then reshapes into the weight matrices W1, W2, W3.
+
+        Inputs = qpos only.
+		"""
 		input_size = len(self.data.qpos)
 		output_size = self.model.nu
 
@@ -326,7 +361,13 @@ class Individual:
 		)
 
 	def _construct_controller(self):
-		"""Builds the Controller instance using the decoded weights."""
+		"""
+		Builds the Controller instance using the decoded weights.
+		
+		Simple tanh MLP:
+        - qpos -> tanh -> tanh -> tanh
+        - outputs are multiplied so they match the torque range of the robot's motors
+		"""
 		w1, w2, w3 = self.w1, self.w2, self.w3
 		
 		# Check if weights are set (should always be true after _decode_brain_genome)
@@ -340,7 +381,7 @@ class Individual:
 			layer1 = np.tanh(np.dot(inputs, w1))
 			layer2 = np.tanh(np.dot(layer1, w2))
 			outputs = np.tanh(np.dot(layer2, w3))
-			return outputs * np.pi
+			return outputs * np.pi  # keep identical scaling
 
 		self.controller = Controller(
 			controller_callback_function=nn_controller,
@@ -350,21 +391,35 @@ class Individual:
 # --- HELPER FUNCTIONS (that don't require class state) ---
 
 def make_random_body_genome(rng: np.random.Generator) -> np.ndarray:
-	"""A random body genome."""
+	"""A random body genome. Body “genes” for the NDE (Neural Developmental Encoding)."""
 	return rng.uniform(low=-100, high=100, size=LEN_BODY_GENOME)
 
 def make_random_brain_genome(rng: np.random.Generator) -> np.ndarray:
-	"""A random brain genome pool."""
+	"""
+	A random brain weight genome pool.
+
+	Later, we slice/reshape to W1, W2, W3 depending on
+    the actual input/output sizes of the compiled body.
+	"""
 	return rng.normal(loc=0.0138, scale=0.5, size=LEN_BRAIN_GENOME)
 
 def make_random_genome(rng: np.random.Generator) -> np.ndarray:
-	"""Make a random full genome for a single individual."""
+	"""
+	Make a random full genome (body segment + brain segment) 
+	for a single individual.
+	"""
 	body_genome = make_random_body_genome(rng)
 	brain_genome = make_random_brain_genome(rng)
 	return np.concatenate([body_genome, brain_genome])
 
 def get_len_required(input_size: int, output_size: int) -> tuple[int, int, int, int]:
-	"""Calculates the required length and segment lengths for the brain genome."""
+	""""""
+	"""
+	Calculates the required length and segment lengths for the brain genome.
+
+    Given the body's actual input/output sizes, computes the number of weights we need
+    for a simple 2-hidden-layer MLP (HIDDEN_SIZE neurons per hidden layer).
+    """
 	l1 = input_size * HIDDEN_SIZE
 	l2 = HIDDEN_SIZE * HIDDEN_SIZE
 	l3 = HIDDEN_SIZE * output_size
